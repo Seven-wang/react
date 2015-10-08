@@ -1,0 +1,150 @@
+<!-- index.html -->
+<html>
+  <head>
+    <title>Hello React</title>
+    <script src="build/react.js"></script>
+    <!-- 转换当前文件中的script jsx成浏览器支持的javascript -->
+    <script src="build/JSXTransformer.js"></script>
+    <script src="build/jquery-1.10.0.min.js"></script> 
+    <!-- 转换文本中的星号标记文字斜体** -->
+    <script src="build/showdown.min.js"></script>
+  </head>
+  <body>
+    <div id="content"></div>
+    <script type="text/jsx">
+	    // 构造 CommentBox 组件，它只是一个简单的 <div>
+		var CommentBox = React.createClass({
+			loadCommentsFromServer: function() {
+			    $.ajax({
+					url: this.props.url,
+					dataType: 'json',
+					success: function(data) {
+				     	console.log(data);
+						this.setState({data: data});
+					}.bind(this),
+					error: function(xhr, status, err) {
+						console.error(this.props.url, status, err.toString());
+					}.bind(this)
+			    });
+			},
+			handleCommentSubmit: function(comment) {
+				//评论出现在列表之前，必须等待请求完成，感觉很慢。
+				//可以提前添加这条评论到列表中，从而使应用感觉更快。
+			    var comments = this.state.data;
+			    var newComments = comments.concat([comment]);
+			    this.setState({data: newComments});
+			    //打开ajax会自动刷新成json内的数据，就无法看到新添加的内容了，这里需要后台动态修改json内的数据才可以
+			    // $.ajax({
+				   //   url: this.props.url,
+				   //   dataType: 'json',
+				   //   type: 'POST',
+				   //   data: comment,
+				   //   success: function(data) {
+				   //   	console.log(data);
+				   //      this.setState({data: data});
+				   //   }.bind(this),
+				   //   error: function(xhr, status, err) {
+				   //      console.error(this.props.url, status, err.toString());
+				   //   }.bind(this)
+			    // });
+			},
+			//getInitialState()在组件的生命周期中仅执行一次，设置组件的初始化状态。
+			getInitialState: function() {
+			    return {data: []};
+			},
+			//componentDidMount是一个在组件被渲染的时候React自动调用的方法。
+			//我们把旧的评论数组替换成从服务器拿到的新的数组，然后UI自动更新。
+			componentDidMount: function() {
+			    this.loadCommentsFromServer();
+			    setInterval(this.loadCommentsFromServer, this.props.pollInterval);
+			},
+			render: function() {
+			    return (
+			      	<div className="commentBox">
+				        <h1>Comments</h1>
+				        <CommentList data={this.state.data} />
+				        <CommentForm onCommentSubmit={this.handleCommentSubmit} />
+			      	</div>
+			    );
+			}
+		});
+
+		//CommentList 和 CommentForm 构建骨架，这也会是一些简单的 <div>
+		var CommentList = React.createClass({
+			render: function() {
+			  	var commentNodes = this.props.data.map(function (comment) {
+			      	return (
+				        <Comment author={comment.author}>
+				          	{comment.text}
+				        </Comment>
+			      	);
+			    });
+			    return (
+				     <div className="commentList">
+				        {commentNodes}
+				     </div>
+			    );
+			}
+		});
+		//构造表单了。CommentForm组件询问用户的名字和评论内容，
+		//然后发送一个请求到服务器，保存这条评论。
+		var CommentForm = React.createClass({
+			handleSubmit: function(e) {
+				//在事件回调中调用preventDefault()来避免浏览器默认地提交表单。
+				e.preventDefault();
+				//获取用户提交的姓名和其它
+				//我们利用Ref属性给子组件命名，this.refs引用组件。
+				//我们可以在组件上调用getDOMNode()获取浏览器本地的DOM元素。
+				var author = this.refs.author.getDOMNode().value.trim();
+				var text = this.refs.text.getDOMNode().value.trim();
+				if (!text || !author) {
+					alert("can`t nothing")
+					return;
+				}
+				this.props.onCommentSubmit({author: author, text: text});
+				this.refs.author.getDOMNode().value = '';
+				this.refs.text.getDOMNode().value = '';
+				return;
+			},
+			render: function() {
+				return (
+					//React使用驼峰命名规范的方式给组件绑定事件处理器。
+					//我们给表单绑定一个onSubmit处理器，用于当表单提交了合法的输入后清空表单字段。
+				  	<form className="commentForm" onSubmit={this.handleSubmit}>
+					    <input type="text" placeholder="Your name" ref="author" />
+					    <input type="text" placeholder="Say something..." ref="text" />
+					    <input type="submit" value="Post" />
+				  	</form>
+				);
+			}
+		});
+		//创建评论组件。通过 props，就能够从中读取到从 CommentList 传递过来的数据，
+		//然后渲染一些标记
+		//Markdown 是一种简单的格式化内联文本的方式。例如，用星号包裹文本将会使其强调突出。
+		var converter = new Showdown.converter();
+		var Comment = React.createClass({
+			render: function() {
+			  	//这是一个特殊的 API，故意让插入原始的 HTML 变得困难，但是对于 Showdown，
+			  	//我们将利用这个后门。避免页面输出的是“<p>This is <em>another</em> comment</p>”
+			    var rawMarkup = converter.makeHtml(this.props.children.toString());
+			    return (
+				     <div className="comment">
+				        <h2 className="commentAuthor">
+				        	{this.props.author}
+				        </h2>
+				        <span dangerouslySetInnerHTML={{__html: rawMarkup}} />
+				     </div>
+			    );
+			}
+		});
+
+
+		React.render(
+			//组件第一次加载以及之后每隔两秒钟，调用这个方法
+			<CommentBox url="comments.json"  pollInterval={20000}/>,
+			//<CommentBox url="comments.json" />,
+			document.getElementById('content')
+		);
+    </script>
+  </body>
+</html>
